@@ -1,0 +1,956 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum client_status_enum {
+  active
+  inactive
+  archived
+  lead
+}
+
+enum client_type_enum {
+  individual
+  business
+  nonprofit
+}
+
+enum task_status_enum {
+  new
+  in_progress
+  waiting_client
+  review
+  completed
+}
+
+enum task_priority_enum {
+  low
+  medium
+  high
+  urgent
+}
+
+enum invoice_status_enum {
+  draft
+  sent
+  paid
+  overdue
+  cancelled
+}
+
+enum payment_method_enum {
+  stripe
+  check
+  cash
+  wire
+  other
+}
+
+enum payment_status_enum {
+  pending
+  completed
+  failed
+  refunded
+}
+
+enum subscription_status_enum {
+  trialing
+  active
+  past_due
+  canceled
+  unpaid
+}
+
+enum document_visibility_enum {
+  internal
+  client
+}
+
+enum notification_type_enum {
+  task_assigned
+  task_completed
+  invoice_sent
+  invoice_paid
+  document_uploaded
+  comment_added
+  user_invited
+}
+
+enum email_event_type_enum {
+  sent
+  delivered
+  opened
+  clicked
+  bounced
+  complained
+}
+// =============================================================================
+// DOMAIN: AUTH — firms, users, roles, permissions, role_permissions,
+//                user_roles, firm_settings, user_settings
+// =============================================================================
+
+model firms {
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String    @db.VarChar(255)
+  slug       String    @unique @db.VarChar(100)
+  email      String    @db.VarChar(255)
+  phone      String?   @db.VarChar(20)
+  address    String?
+  website    String?   @db.VarChar(255)
+  logo_url   String?   @db.VarChar(500)
+  timezone   String?   @db.VarChar(50)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  // Relations
+  users                users[]
+  clients              clients[]
+  contacts             contacts[]
+  folders              folders[]
+  documents            documents[]
+  tasks                tasks[]
+  invoices             invoices[]
+  payments             payments[]
+  notifications        notifications[]
+  email_events         email_events[]
+  activity_events      activity_events[]
+  storage_usage        storage_usage?
+  subscriptions        subscriptions?
+  user_roles           user_roles[]
+  firm_feature_flags   firm_feature_flags[]
+  invoice_sequences    invoice_sequences?
+  firm_settings        firm_settings?
+  client_contacts      client_contacts[]
+  client_addresses     client_addresses[]
+  security_audit_logs  security_audit_logs[]
+
+  @@index([email])
+  @@index([deleted_at])
+}
+
+model users {
+  id             String    @id @default(uuid()) @db.Uuid
+  firm_id        String    @db.Uuid
+  email          String    @db.VarChar(255)
+  password_hash  String    @db.VarChar(255)
+  first_name     String    @db.VarChar(100)
+  last_name      String    @db.VarChar(100)
+  phone          String?   @db.VarChar(20)
+  avatar_url     String?   @db.VarChar(500)
+  is_active      Boolean   @default(true)
+  email_verified Boolean   @default(false)
+  last_login_at  DateTime?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  deleted_at     DateTime?
+
+  // Relations
+  firm                  firms                @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  user_roles            user_roles[]
+  documents_uploaded    documents[]          @relation("uploader")
+  tasks_created         tasks[]              @relation("task_creator")
+  task_assignments      task_assignments[]   @relation("assignee")
+  task_assignments_made task_assignments[]   @relation("assigner")
+  task_comments         task_comments[]
+  notifications         notifications[]
+  activity_events       activity_events[]    @relation("actor_user")
+  firm_feature_flags    firm_feature_flags[]
+  failed_jobs_resolved  failed_jobs[]
+  document_versions     document_versions[]  @relation("document_version_uploader")
+  user_settings         user_settings?
+  security_audit_logs   security_audit_logs[]
+
+  @@unique([firm_id, email])
+  @@index([firm_id])
+  @@index([email])
+  @@index([deleted_at])
+}
+
+model roles {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(50)
+  description String?
+  is_system   Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  // Relations
+  role_permissions role_permissions[]
+  user_roles       user_roles[]
+}
+
+model permissions {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(100)
+  resource    String   @db.VarChar(50)
+  action      String   @db.VarChar(50)
+  description String?
+  created_at  DateTime @default(now())
+
+  // Relations
+  role_permissions role_permissions[]
+
+  @@index([resource])
+  @@index([action])
+}
+
+model role_permissions {
+  id            String   @id @default(uuid()) @db.Uuid
+  role_id       String   @db.Uuid
+  permission_id String   @db.Uuid
+  created_at    DateTime @default(now())
+
+  // Relations
+  role       roles       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission permissions @relation(fields: [permission_id], references: [id], onDelete: Restrict)
+
+  @@unique([role_id, permission_id])
+  @@index([role_id])
+  @@index([permission_id])
+}
+
+model user_roles {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  role_id    String   @db.Uuid
+  firm_id    String   @db.Uuid
+  created_at DateTime @default(now())
+
+  // Relations
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role roles @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  firm firms @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, role_id, firm_id])
+  @@index([user_id])
+  @@index([firm_id])
+  @@index([role_id])
+}
+
+model firm_settings {
+  id              String   @id @default(uuid()) @db.Uuid
+  firm_id         String   @unique @db.Uuid
+  timezone        String   @default("America/New_York") @db.VarChar(50)
+  currency        String   @default("USD") @db.VarChar(3)
+  date_format     String   @default("MM/DD/YYYY") @db.VarChar(20)
+  invoice_prefix  String?  @db.VarChar(10)
+  invoice_terms   String?
+  invoice_footer  String?
+  logo_url        String?  @db.VarChar(500)
+  primary_color   String?  @db.VarChar(7)
+  email_from_name String?  @db.VarChar(255)
+  email_reply_to  String?  @db.VarChar(255)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  // Relations
+  firm firms @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+}
+
+model user_settings {
+  id                    String   @id @default(uuid()) @db.Uuid
+  user_id               String   @unique @db.Uuid
+  timezone              String?  @db.VarChar(50)
+  language              String   @default("en") @db.VarChar(10)
+  email_notifications   Boolean  @default(true)
+  desktop_notifications Boolean  @default(true)
+  theme                 String   @default("light") @db.VarChar(20)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  // Relations
+  user users @relation(fields: [user_id], references: [id])
+}
+// =============================================================================
+// DOMAIN: CRM — clients, contacts, client_contacts, client_addresses
+// =============================================================================
+
+model clients {
+  id            String                   @id @default(uuid()) @db.Uuid
+  firm_id       String                   @db.Uuid
+  name          String                   @db.VarChar(255)
+  email         String?                  @db.VarChar(255)
+  phone         String?                  @db.VarChar(20)
+  type          client_type_enum?
+  status        client_status_enum       @default(active)
+  tax_id        String?                  @db.VarChar(50)
+  website       String?                  @db.VarChar(255)
+  notes         String?
+  search_vector Unsupported("tsvector")?
+  created_at    DateTime                 @default(now())
+  updated_at    DateTime                 @updatedAt
+  deleted_at    DateTime?
+
+  // Relations
+  firm             firms              @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client_contacts  client_contacts[]
+  client_addresses client_addresses[]
+  folders          folders[]
+  documents        documents[]
+  tasks            tasks[]
+  invoices         invoices[]
+  client_users     client_users[]
+  activity_events  activity_events[]
+
+  @@index([firm_id])
+  @@index([email])
+  @@index([status])
+  @@index([type])
+  @@index([deleted_at])
+}
+
+model contacts {
+  id            String                   @id @default(uuid()) @db.Uuid
+  firm_id       String                   @db.Uuid
+  name          String                   @db.VarChar(255)
+  email         String?                  @db.VarChar(255)
+  phone         String?                  @db.VarChar(20)
+  title         String?                  @db.VarChar(100)
+  is_primary    Boolean                  @default(false)
+  notes         String?
+  search_vector Unsupported("tsvector")?
+  created_at    DateTime                 @default(now())
+  updated_at    DateTime                 @updatedAt
+  deleted_at    DateTime?
+
+  // Relations
+  firm            firms             @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client_contacts client_contacts[]
+
+  // NOTE: (firm_id, email) uniqueness is enforced via a partial index in migration:
+  // CREATE UNIQUE INDEX contacts_firm_email_unique ON contacts(firm_id, email) WHERE email IS NOT NULL AND deleted_at IS NULL;
+  // Prisma @@unique cannot represent partial indexes on nullable columns.
+  @@index([firm_id])
+  @@index([email])
+  @@index([deleted_at])
+}
+
+model client_contacts {
+  id         String   @id @default(uuid()) @db.Uuid
+  firm_id    String   @db.Uuid
+  client_id  String   @db.Uuid
+  contact_id String   @db.Uuid
+  is_primary Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  // Relations
+  firm    firms    @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client  clients  @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  contact contacts @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+
+  @@unique([firm_id, client_id, contact_id])
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([contact_id])
+  @@index([is_primary])
+}
+
+model client_addresses {
+  id           String   @id @default(uuid()) @db.Uuid
+  firm_id      String   @db.Uuid
+  client_id    String   @db.Uuid
+  type         String   @db.VarChar(50)
+  street_line1 String?  @db.VarChar(255)
+  street_line2 String?  @db.VarChar(255)
+  city         String?  @db.VarChar(100)
+  state        String?  @db.VarChar(100)
+  postal_code  String?  @db.VarChar(20)
+  country      String?  @db.VarChar(100)
+  is_primary   Boolean  @default(false)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  // Relations
+  firm   firms   @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client clients @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([type])
+  @@index([is_primary])
+}
+// =============================================================================
+// DOMAIN: DOCUMENTS — folders, documents, document_versions, document_permissions
+// =============================================================================
+
+model folders {
+  id          String    @id @default(uuid()) @db.Uuid
+  firm_id     String    @db.Uuid
+  client_id   String?   @db.Uuid
+  parent_id   String?   @db.Uuid
+  name        String    @db.VarChar(255)
+  description String?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  // Relations
+  firm      firms       @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client    clients?    @relation(fields: [client_id], references: [id])
+  parent    folders?    @relation("folder_children", fields: [parent_id], references: [id])
+  children  folders[]   @relation("folder_children")
+  documents documents[]
+
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([parent_id])
+  @@index([deleted_at])
+}
+
+model documents {
+  id              String                   @id @default(uuid()) @db.Uuid
+  firm_id         String                   @db.Uuid
+  client_id       String?                  @db.Uuid
+  folder_id       String?                  @db.Uuid
+  filename        String                   @db.VarChar(500)
+  file_key        String                   @db.VarChar(500)
+  mime_type       String?                  @db.VarChar(100)
+  size_bytes      BigInt
+  description     String?
+  uploaded_by     String?                  @db.Uuid
+  current_version Int                      @default(1)
+  search_vector   Unsupported("tsvector")?
+  created_at      DateTime                 @default(now())
+  updated_at      DateTime                 @updatedAt
+  deleted_at      DateTime?
+
+  // Relations
+  firm                 firms                  @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client               clients?               @relation(fields: [client_id], references: [id])
+  folder               folders?               @relation(fields: [folder_id], references: [id])
+  uploader             users?                 @relation("uploader", fields: [uploaded_by], references: [id])
+  document_versions    document_versions[]
+  document_permissions document_permissions[]
+
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([folder_id])
+  @@index([uploaded_by])
+  @@index([created_at])
+  @@index([deleted_at])
+  @@index([firm_id, client_id])
+}
+
+model document_versions {
+  id             String   @id @default(uuid()) @db.Uuid
+  document_id    String   @db.Uuid
+  version_number Int
+  file_key       String   @db.VarChar(500)
+  size_bytes     BigInt
+  uploaded_by    String?  @db.Uuid
+  uploaded_at    DateTime @default(now())
+  is_current     Boolean  @default(false)
+
+  // Relations
+  document documents @relation(fields: [document_id], references: [id], onDelete: Cascade)
+  uploader users?    @relation("document_version_uploader", fields: [uploaded_by], references: [id])
+
+  @@unique([document_id, version_number])
+  @@index([document_id])
+  @@index([uploaded_by])
+  @@index([is_current])
+}
+
+model document_permissions {
+  id          String                   @id @default(uuid()) @db.Uuid
+  document_id String                   @db.Uuid
+  visibility  document_visibility_enum @default(internal)
+  created_at  DateTime                 @default(now())
+  updated_at  DateTime                 @updatedAt
+
+  // Relations
+  document documents @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@index([document_id])
+  @@index([visibility])
+}
+// =============================================================================
+// DOMAIN: TASKS — tasks, task_assignments, task_comments
+// =============================================================================
+
+model tasks {
+  id            String                   @id @default(uuid()) @db.Uuid
+  firm_id       String                   @db.Uuid
+  client_id     String?                  @db.Uuid
+  title         String                   @db.VarChar(255)
+  description   String?
+  status        task_status_enum         @default(new)
+  priority      task_priority_enum       @default(medium)
+  due_date      DateTime?                @db.Date
+  completed_at  DateTime?
+  created_by    String?                  @db.Uuid
+  search_vector Unsupported("tsvector")?
+  created_at    DateTime                 @default(now())
+  updated_at    DateTime                 @updatedAt
+  deleted_at    DateTime?
+
+  // Relations
+  firm             firms              @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client           clients?           @relation(fields: [client_id], references: [id])
+  creator          users?             @relation("task_creator", fields: [created_by], references: [id])
+  task_assignments task_assignments[]
+  task_comments    task_comments[]
+
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([status])
+  @@index([priority])
+  @@index([due_date])
+  @@index([created_by])
+  @@index([deleted_at])
+  @@index([firm_id, status, due_date])
+}
+
+model task_assignments {
+  id          String   @id @default(uuid()) @db.Uuid
+  task_id     String   @db.Uuid
+  user_id     String   @db.Uuid
+  assigned_by String?  @db.Uuid
+  assigned_at DateTime @default(now())
+  created_at  DateTime @default(now())
+
+  // Relations
+  task     tasks  @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  assignee users  @relation("assignee", fields: [user_id], references: [id])
+  assigner users? @relation("assigner", fields: [assigned_by], references: [id])
+
+  @@unique([task_id, user_id])
+  @@index([task_id])
+  @@index([user_id])
+  @@index([assigned_by])
+}
+
+model task_comments {
+  id         String    @id @default(uuid()) @db.Uuid
+  task_id    String    @db.Uuid
+  user_id    String?   @db.Uuid
+  comment    String
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  // Relations
+  task tasks  @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user users? @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([task_id])
+  @@index([user_id])
+  @@index([created_at])
+  @@index([deleted_at])
+}
+// =============================================================================
+// DOMAIN: BILLING — invoice_sequences, invoices, invoice_items, payments
+// =============================================================================
+
+model invoice_sequences {
+  firm_id     String   @id @db.Uuid
+  last_number Int      @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  firm firms @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+}
+
+model invoices {
+  id              String              @id @default(uuid()) @db.Uuid
+  firm_id         String              @db.Uuid
+  client_id       String              @db.Uuid
+  number          Int
+  status          invoice_status_enum @default(draft)
+  issue_date      DateTime            @db.Date
+  due_date        DateTime?           @db.Date
+  subtotal_amount Decimal             @default(0) @db.Decimal(10, 2)
+  tax_amount      Decimal             @default(0) @db.Decimal(10, 2)
+  total_amount    Decimal             @default(0) @db.Decimal(10, 2)
+  paid_amount     Decimal             @default(0) @db.Decimal(10, 2)
+  notes           String?
+  pdf_url         String?             @db.VarChar(500)
+  sent_at         DateTime?
+  paid_at         DateTime?
+  created_at      DateTime            @default(now())
+  updated_at      DateTime            @updatedAt
+  deleted_at      DateTime?
+
+  // Relations
+  firm          firms           @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client        clients         @relation(fields: [client_id], references: [id])
+  invoice_items invoice_items[]
+  payments      payments[]
+
+  @@unique([firm_id, number])
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([status])
+  @@index([due_date])
+  @@index([created_at])
+  @@index([deleted_at])
+  @@index([firm_id, status, due_date])
+}
+
+model invoice_items {
+  id          String   @id @default(uuid()) @db.Uuid
+  invoice_id  String   @db.Uuid
+  description String
+  quantity    Decimal  @db.Decimal(10, 2)
+  unit_price  Decimal  @db.Decimal(10, 2)
+  amount      Decimal  @db.Decimal(10, 2)
+  sort_order  Int      @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  invoice invoices @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+
+  @@index([invoice_id])
+  @@index([sort_order])
+}
+
+model payments {
+  id                       String              @id @default(uuid()) @db.Uuid
+  firm_id                  String              @db.Uuid
+  invoice_id               String              @db.Uuid
+  amount                   Decimal             @db.Decimal(10, 2)
+  method                   payment_method_enum
+  status                   payment_status_enum @default(pending)
+  stripe_payment_intent_id String?             @db.VarChar(255)
+  stripe_charge_id         String?             @db.VarChar(255)
+  reference_number         String?             @db.VarChar(255)
+  notes                    String?
+  paid_at                  DateTime?
+  created_at               DateTime            @default(now())
+  updated_at               DateTime            @updatedAt
+
+  // Relations
+  firm    firms    @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  invoice invoices @relation(fields: [invoice_id], references: [id])
+
+  @@index([firm_id])
+  @@index([invoice_id])
+  @@index([status])
+  @@index([stripe_payment_intent_id])
+  @@index([paid_at])
+  @@index([created_at])
+}
+// =============================================================================
+// DOMAIN: NOTIFICATIONS — notifications, email_events
+// =============================================================================
+
+model notifications {
+  id          String                 @id @default(uuid()) @db.Uuid
+  firm_id     String                 @db.Uuid
+  user_id     String                 @db.Uuid
+  type        notification_type_enum
+  title       String                 @db.VarChar(255)
+  message     String
+  entity_type String?                @db.VarChar(50)
+  entity_id   String?                @db.Uuid
+  is_read     Boolean                @default(false)
+  read_at     DateTime?
+  created_at  DateTime               @default(now())
+
+  // Relations
+  firm firms @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([firm_id])
+  @@index([user_id])
+  @@index([is_read])
+  @@index([created_at])
+  @@index([user_id, is_read, created_at])
+}
+
+model email_events {
+  id            String                @id @default(uuid()) @db.Uuid
+  firm_id       String?               @db.Uuid
+  message_id    String                @db.VarChar(255)
+  email_to      String                @db.VarChar(255)
+  email_from    String                @db.VarChar(255)
+  subject       String?
+  template_name String?               @db.VarChar(100)
+  event_type    email_event_type_enum
+  event_data    Json?
+  ip_address    String?               @db.VarChar(45)
+  user_agent    String?
+  created_at    DateTime              @default(now())
+
+  // Relations
+  firm firms? @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+
+  @@index([firm_id])
+  @@index([message_id])
+  @@index([email_to])
+  @@index([event_type])
+  @@index([created_at])
+  @@index([firm_id, created_at])
+}
+// =============================================================================
+// DOMAIN: PORTAL — client_users, portal_sessions
+// =============================================================================
+
+model client_users {
+  id             String    @id @default(uuid()) @db.Uuid
+  client_id      String    @db.Uuid
+  email          String    @db.VarChar(255)
+  password_hash  String    @db.VarChar(255)
+  first_name     String    @db.VarChar(100)
+  last_name      String    @db.VarChar(100)
+  is_active      Boolean   @default(true)
+  email_verified Boolean   @default(false)
+  last_login_at  DateTime?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  deleted_at     DateTime?
+
+  // Relations
+  client          clients           @relation(fields: [client_id], references: [id])
+  portal_sessions portal_sessions[]
+  activity_events activity_events[] @relation("actor_client_user")
+
+  @@unique([client_id, email])
+  @@index([client_id])
+  @@index([email])
+  @@index([deleted_at])
+}
+
+model portal_sessions {
+  id             String   @id @default(uuid()) @db.Uuid
+  client_user_id String   @db.Uuid
+  token          String   @db.VarChar(255)
+  ip_address     String?  @db.VarChar(45)
+  user_agent     String?
+  expires_at     DateTime
+  created_at     DateTime @default(now())
+
+  // Relations
+  client_user client_users @relation(fields: [client_user_id], references: [id])
+
+  @@index([client_user_id])
+  @@index([token])
+  @@index([expires_at])
+}
+// =============================================================================
+// DOMAIN: SAAS BILLING — plans, subscriptions, subscription_events
+// =============================================================================
+
+model plans {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String   @db.VarChar(100)
+  slug           String   @unique @db.VarChar(50)
+  description    String?
+  price_monthly  Decimal  @db.Decimal(10, 2)
+  price_annual   Decimal  @db.Decimal(10, 2)
+  max_clients    Int?
+  max_users      Int?
+  max_storage_gb Int?
+  features          Json?
+  is_active         Boolean  @default(true)
+  sort_order        Int      @default(0)
+  stripe_product_id String?  @db.VarChar(255)
+  stripe_price_id   String?  @db.VarChar(255)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  // Relations
+  subscriptions subscriptions[]
+
+  @@index([is_active])
+  @@index([sort_order])
+  @@index([stripe_product_id])
+  @@unique([stripe_price_id])
+}
+
+model subscriptions {
+  id                     String                   @id @default(uuid()) @db.Uuid
+  firm_id                String                   @unique @db.Uuid
+  plan_id                String                   @db.Uuid
+  status                 subscription_status_enum @default(trialing)
+  stripe_subscription_id String?                  @db.VarChar(255)
+  stripe_customer_id     String?                  @db.VarChar(255)
+  current_period_start   DateTime?
+  current_period_end     DateTime?
+  cancel_at_period_end   Boolean                  @default(false)
+  canceled_at            DateTime?
+  trial_start            DateTime?
+  trial_end              DateTime?
+  created_at             DateTime                 @default(now())
+  updated_at             DateTime                 @updatedAt
+
+  // Relations
+  firm                firms                 @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  plan                plans                 @relation(fields: [plan_id], references: [id])
+  subscription_events subscription_events[]
+
+  @@index([plan_id])
+  @@index([status])
+  @@index([stripe_subscription_id])
+  @@index([current_period_end])
+}
+
+model subscription_events {
+  id              String   @id @default(uuid()) @db.Uuid
+  subscription_id String   @db.Uuid
+  event_type      String   @db.VarChar(100)
+  from_status     String?  @db.VarChar(50)
+  to_status       String?  @db.VarChar(50)
+  metadata        Json?
+  created_at      DateTime @default(now())
+
+  // Relations
+  subscription subscriptions @relation(fields: [subscription_id], references: [id])
+
+  @@index([subscription_id])
+  @@index([event_type])
+  @@index([created_at])
+}
+// =============================================================================
+// DOMAIN: OBSERVABILITY — activity_events, webhook_events, feature_flags,
+//                         firm_feature_flags, storage_usage, failed_jobs
+// =============================================================================
+
+model activity_events {
+  id                   String   @id @default(uuid()) @db.Uuid
+  firm_id              String   @db.Uuid
+  client_id            String?  @db.Uuid
+  actor_user_id        String?  @db.Uuid
+  actor_client_user_id String?  @db.Uuid
+  event_type           String   @db.VarChar(100)
+  entity_type          String?  @db.VarChar(50)
+  entity_id            String?  @db.Uuid
+  description          String
+  metadata             Json?
+  created_at           DateTime @default(now())
+
+  // Relations
+  firm              firms         @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client            clients?      @relation(fields: [client_id], references: [id])
+  actor_user        users?        @relation("actor_user", fields: [actor_user_id], references: [id])
+  actor_client_user client_users? @relation("actor_client_user", fields: [actor_client_user_id], references: [id])
+
+  // CHECK: exactly one actor must be set (enforced in migration SQL)
+  // CHECK ((actor_user_id IS NOT NULL AND actor_client_user_id IS NULL)
+  //     OR (actor_user_id IS NULL AND actor_client_user_id IS NOT NULL))
+
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([actor_user_id])
+  @@index([actor_client_user_id])
+  @@index([event_type])
+  @@index([entity_type])
+  @@index([created_at])
+  @@index([firm_id, created_at])
+  @@index([client_id, created_at])
+}
+
+model webhook_events {
+  id           String    @id @default(uuid()) @db.Uuid
+  event_id     String    @unique @db.VarChar(255)
+  type         String    @db.VarChar(100)
+  status       String    @default("pending") @db.VarChar(50)
+  payload      Json?
+  error        String?
+  received_at  DateTime  @default(now())
+  processed_at DateTime?
+  created_at   DateTime  @default(now())
+
+  @@index([type])
+  @@index([status])
+  @@index([received_at])
+}
+
+model feature_flags {
+  id                 String   @id @default(uuid()) @db.Uuid
+  name               String   @unique @db.VarChar(100)
+  description        String?
+  enabled_globally   Boolean  @default(false)
+  rollout_percentage Int      @default(0)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  // Relations
+  firm_feature_flags firm_feature_flags[]
+}
+
+model firm_feature_flags {
+  id              String    @id @default(uuid()) @db.Uuid
+  firm_id         String    @db.Uuid
+  feature_flag_id String    @db.Uuid
+  enabled         Boolean
+  enabled_at      DateTime?
+  enabled_by      String?   @db.Uuid
+  created_at      DateTime  @default(now())
+
+  // Relations
+  firm         firms         @relation(fields: [firm_id], references: [id])
+  feature_flag feature_flags @relation(fields: [feature_flag_id], references: [id])
+  enabler      users?        @relation(fields: [enabled_by], references: [id])
+
+  @@unique([firm_id, feature_flag_id])
+  @@index([firm_id])
+  @@index([feature_flag_id])
+}
+
+model storage_usage {
+  id                 String   @id @default(uuid()) @db.Uuid
+  firm_id            String   @unique @db.Uuid
+  total_bytes        BigInt   @default(0)
+  document_count     Int      @default(0)
+  last_calculated_at DateTime @default(now())
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  // Relations
+  firm firms @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+}
+
+model failed_jobs {
+  id               String    @id @default(uuid()) @db.Uuid
+  queue            String    @db.VarChar(100)
+  job_id           String    @db.VarChar(255)
+  payload          Json
+  error            String
+  attempts         Int
+  failed_at        DateTime  @default(now())
+  resolved_at      DateTime?
+  resolved_by      String?   @db.Uuid
+  resolution_notes String?
+
+  // Relations
+  resolver users? @relation(fields: [resolved_by], references: [id])
+
+  @@index([queue])
+  @@index([failed_at])
+  @@index([resolved_at])
+}
+
+// =============================================================================
+// DOMAIN: SECURITY — security_audit_logs
+// =============================================================================
+
+model security_audit_logs {
+  id         String   @id @default(uuid()) @db.Uuid
+  firm_id    String?  @db.Uuid
+  user_id    String?  @db.Uuid
+  event_type String   @db.VarChar(100)
+  ip_address String?  @db.VarChar(45)
+  user_agent String?
+  metadata   Json?
+  created_at DateTime @default(now())
+
+  // Relations
+  firm firms? @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  user users? @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([firm_id])
+  @@index([user_id])
+  @@index([event_type])
+  @@index([created_at])
+}

@@ -1,0 +1,86 @@
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum client_status_enum {
+  active
+  inactive
+  archived
+  lead
+}
+
+enum client_type_enum {
+  individual
+  business
+  nonprofit
+}
+
+enum task_status_enum {
+  new
+  in_progress
+  waiting_client
+  review
+  completed
+}
+
+enum task_priority_enum {
+  low
+  medium
+  high
+  urgent
+}
+
+enum invoice_status_enum {
+  draft
+  sent
+  paid
+  overdue
+  cancelled
+}
+
+enum payment_method_enum {
+  stripe
+  check
+  cash
+  wire
+  other
+}
+
+enum payment_status_enum {
+  pending
+  completed
+  failed
+  refunded
+}
+
+enum subscription_status_enum {
+  trialing
+  active
+  past_due
+  canceled
+  unpaid
+}
+
+enum document_visibility_enum {
+  internal
+  client
+}
+
+enum notification_type_enum {
+  task_assigned
+  task_completed
+  invoice_sent
+  invoice_paid
+  document_uploaded
+  comment_added
+  user_invited
+}
+
+enum email_event_type_enum {
+  sent
+  delivered
+  opened
+  clicked
+  bounced
+  complained
+}

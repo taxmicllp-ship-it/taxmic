@@ -1,0 +1,108 @@
+// =============================================================================
+// DOMAIN: CRM — clients, contacts, client_contacts, client_addresses
+// =============================================================================
+
+model clients {
+  id            String                   @id @default(uuid()) @db.Uuid
+  firm_id       String                   @db.Uuid
+  name          String                   @db.VarChar(255)
+  email         String?                  @db.VarChar(255)
+  phone         String?                  @db.VarChar(20)
+  type          client_type_enum?
+  status        client_status_enum       @default(active)
+  tax_id        String?                  @db.VarChar(50)
+  website       String?                  @db.VarChar(255)
+  notes         String?
+  search_vector Unsupported("tsvector")?
+  created_at    DateTime                 @default(now())
+  updated_at    DateTime                 @updatedAt
+  deleted_at    DateTime?
+
+  // Relations
+  firm             firms              @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client_contacts  client_contacts[]
+  client_addresses client_addresses[]
+  folders          folders[]
+  documents        documents[]
+  tasks            tasks[]
+  invoices         invoices[]
+  client_users     client_users[]
+  activity_events  activity_events[]
+
+  @@index([firm_id])
+  @@index([email])
+  @@index([status])
+  @@index([type])
+  @@index([deleted_at])
+}
+
+model contacts {
+  id            String                   @id @default(uuid()) @db.Uuid
+  firm_id       String                   @db.Uuid
+  name          String                   @db.VarChar(255)
+  email         String?                  @db.VarChar(255)
+  phone         String?                  @db.VarChar(20)
+  title         String?                  @db.VarChar(100)
+  is_primary    Boolean                  @default(false)
+  notes         String?
+  search_vector Unsupported("tsvector")?
+  created_at    DateTime                 @default(now())
+  updated_at    DateTime                 @updatedAt
+  deleted_at    DateTime?
+
+  // Relations
+  firm            firms             @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client_contacts client_contacts[]
+
+  // NOTE: (firm_id, email) uniqueness is enforced via a partial index in migration:
+  // CREATE UNIQUE INDEX contacts_firm_email_unique ON contacts(firm_id, email) WHERE email IS NOT NULL AND deleted_at IS NULL;
+  // Prisma @@unique cannot represent partial indexes on nullable columns.
+  @@index([firm_id])
+  @@index([email])
+  @@index([deleted_at])
+}
+
+model client_contacts {
+  id         String   @id @default(uuid()) @db.Uuid
+  firm_id    String   @db.Uuid
+  client_id  String   @db.Uuid
+  contact_id String   @db.Uuid
+  is_primary Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  // Relations
+  firm    firms    @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client  clients  @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  contact contacts @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+
+  @@unique([firm_id, client_id, contact_id])
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([contact_id])
+  @@index([is_primary])
+}
+
+model client_addresses {
+  id           String   @id @default(uuid()) @db.Uuid
+  firm_id      String   @db.Uuid
+  client_id    String   @db.Uuid
+  type         String   @db.VarChar(50)
+  street_line1 String?  @db.VarChar(255)
+  street_line2 String?  @db.VarChar(255)
+  city         String?  @db.VarChar(100)
+  state        String?  @db.VarChar(100)
+  postal_code  String?  @db.VarChar(20)
+  country      String?  @db.VarChar(100)
+  is_primary   Boolean  @default(false)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  // Relations
+  firm   firms   @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client clients @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([type])
+  @@index([is_primary])
+}

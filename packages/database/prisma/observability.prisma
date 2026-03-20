@@ -1,0 +1,119 @@
+// =============================================================================
+// DOMAIN: OBSERVABILITY — activity_events, webhook_events, feature_flags,
+//                         firm_feature_flags, storage_usage, failed_jobs
+// =============================================================================
+
+model activity_events {
+  id                   String   @id @default(uuid()) @db.Uuid
+  firm_id              String   @db.Uuid
+  client_id            String?  @db.Uuid
+  actor_user_id        String?  @db.Uuid
+  actor_client_user_id String?  @db.Uuid
+  event_type           String   @db.VarChar(100)
+  entity_type          String?  @db.VarChar(50)
+  entity_id            String?  @db.Uuid
+  description          String
+  metadata             Json?
+  created_at           DateTime @default(now())
+
+  // Relations
+  firm              firms         @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client            clients?      @relation(fields: [client_id], references: [id])
+  actor_user        users?        @relation("actor_user", fields: [actor_user_id], references: [id])
+  actor_client_user client_users? @relation("actor_client_user", fields: [actor_client_user_id], references: [id])
+
+  // CHECK: exactly one actor must be set (enforced in migration SQL)
+  // CHECK ((actor_user_id IS NOT NULL AND actor_client_user_id IS NULL)
+  //     OR (actor_user_id IS NULL AND actor_client_user_id IS NOT NULL))
+
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([actor_user_id])
+  @@index([actor_client_user_id])
+  @@index([event_type])
+  @@index([entity_type])
+  @@index([created_at])
+  @@index([firm_id, created_at])
+  @@index([client_id, created_at])
+}
+
+model webhook_events {
+  id           String    @id @default(uuid()) @db.Uuid
+  event_id     String    @unique @db.VarChar(255)
+  type         String    @db.VarChar(100)
+  status       String    @default("pending") @db.VarChar(50)
+  payload      Json?
+  error        String?
+  received_at  DateTime  @default(now())
+  processed_at DateTime?
+  created_at   DateTime  @default(now())
+
+  @@index([type])
+  @@index([status])
+  @@index([received_at])
+}
+
+model feature_flags {
+  id                 String   @id @default(uuid()) @db.Uuid
+  name               String   @unique @db.VarChar(100)
+  description        String?
+  enabled_globally   Boolean  @default(false)
+  rollout_percentage Int      @default(0)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  // Relations
+  firm_feature_flags firm_feature_flags[]
+}
+
+model firm_feature_flags {
+  id              String    @id @default(uuid()) @db.Uuid
+  firm_id         String    @db.Uuid
+  feature_flag_id String    @db.Uuid
+  enabled         Boolean
+  enabled_at      DateTime?
+  enabled_by      String?   @db.Uuid
+  created_at      DateTime  @default(now())
+
+  // Relations
+  firm         firms         @relation(fields: [firm_id], references: [id])
+  feature_flag feature_flags @relation(fields: [feature_flag_id], references: [id])
+  enabler      users?        @relation(fields: [enabled_by], references: [id])
+
+  @@unique([firm_id, feature_flag_id])
+  @@index([firm_id])
+  @@index([feature_flag_id])
+}
+
+model storage_usage {
+  id                 String   @id @default(uuid()) @db.Uuid
+  firm_id            String   @unique @db.Uuid
+  total_bytes        BigInt   @default(0)
+  document_count     Int      @default(0)
+  last_calculated_at DateTime @default(now())
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  // Relations
+  firm firms @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+}
+
+model failed_jobs {
+  id               String    @id @default(uuid()) @db.Uuid
+  queue            String    @db.VarChar(100)
+  job_id           String    @db.VarChar(255)
+  payload          Json
+  error            String
+  attempts         Int
+  failed_at        DateTime  @default(now())
+  resolved_at      DateTime?
+  resolved_by      String?   @db.Uuid
+  resolution_notes String?
+
+  // Relations
+  resolver users? @relation(fields: [resolved_by], references: [id])
+
+  @@index([queue])
+  @@index([failed_at])
+  @@index([resolved_at])
+}

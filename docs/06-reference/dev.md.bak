@@ -1,0 +1,431 @@
+# 1. System Overview
+
+The proposed platform is a **cloud-based practice management SaaS** for solo bookkeepers and small accounting firms. Its purpose is to consolidate client management, document exchange, task tracking, communication, and billing into one system. **Target users** are small accounting practices (1–10 users) and their clients. Core goals are to solve everyday pain points: centralise client data, simplify document collection, automate reminders, and streamline invoicing and payments.  
+
+**High-level capabilities:** Light CRM for clients/contacts; secure client portal for document upload and **[SIMPLIFIED FOR MVP]** email communication logging (not real-time chat); task/to‑do tracking with automated reminders; invoicing and online payment processing; basic e-signature. Time tracking is optional. Background workflows (e.g. sending reminders) ensure minimal manual follow-up.  
+
+**[ARCHITECTURE IMPROVEMENT]** The system follows a **modular monolith architecture** for the MVP. This means the application is structured as distinct, loosely-coupled modules (Auth, CRM, Documents, Tasks, Billing, Notifications) within a single deployable unit. Each module has clear boundaries and can later be extracted into independent microservices if scaling requirements demand it, without requiring a complete rewrite.
+
+**MVP Scope (4–6 months launch):** We include only essential features. *Included:* user authentication, multi-tenant client/organization model, client/contact CRUD, folder-based document storage (via cloud object storage), portal access for clients, manual document requests, tasks with **[SIMPLIFIED FOR MVP]** simple status model (NEW, IN_PROGRESS, WAITING_CLIENT, REVIEW, COMPLETED), **[SIMPLIFIED FOR MVP]** email communication logging and activity feed (not real-time chat), invoice creation, Stripe payment processing, automated email reminders (e.g. overdue tasks/invoices), and simple e-signature support. *Excluded:* advanced automations (complex triggers/conditions), bulk email campaigns, deep external integrations (except core Stripe), multi-currency/region pricing, **[OPTIONAL FUTURE FEATURE]** configurable workflow pipelines (replaced with simple job status model for MVP), **[OPTIONAL FUTURE FEATURE]** real-time websocket chat, etc. The focus is a **modular monolithic** application approach for fastest development. 
+
+ This system will launch as a lean, affordable solution (~$15–$25/user/mo) that addresses key inefficiencies: “chasing documents, missed tasks, scattered emails, slow invoicing” that users frequently cite【146†L1-L4】【154†L676-L684】.  
+
+# 2. System Architecture
+
+**[ARCHITECTURE IMPROVEMENT]** We recommend a **modular monolith architecture** initially, containerised for deployment. The application is organized into distinct modules with clear boundaries, but deployed as a single unit. A microservices split can be deferred until scaling beyond initial load.
+
+**Module Structure:**
+- **Auth Module:** User authentication, authorization, JWT management, session handling
+- **CRM Module:** Client and contact management, relationships, tagging
+- **Documents Module:** File storage, folder management, upload/download, signed URLs
+- **Tasks Module:** Task creation, assignment, status tracking, due date management
+- **Billing Module:** Invoice generation, payment processing, Stripe integration
+- **Notifications Module:** Email sending, reminder scheduling, activity logging
+
+**[ARCHITECTURE IMPROVEMENT]** Each module is self-contained with its own domain logic, data access patterns, and internal APIs. Modules communicate through well-defined interfaces (service layer calls), making future extraction into microservices straightforward if needed.
+
+The high-level layers are: 
+
+- **API Layer:** A RESTful HTTP API (JSON) serving all client-facing and admin requests. Secured with OAuth/JWT.  
+- **Application Layer:** Implements business logic organized by modules (Auth, CRM, Documents, Tasks, Billing, Notifications). This layer also enqueues background jobs (via a worker/queue) for tasks like sending reminders.  
+- **Data Layer:** Relational DB (PostgreSQL) for structured data, plus cache (Redis) and object storage (S3) for files.  
+- **Frontend Layer:** Single Page Application (React/Next.js) for staff UI and a client portal (could be the same codebase, with role-based routing).  
+- **Background Services:** A worker (Node/Python process or Sidekiq/Celery) processes scheduled jobs (email reminders, invoice due checks).  
+
+**Infrastructure:** Deployed on cloud (AWS/Azure/GCP). Typical setup uses Docker containers on an orchestrator (Kubernetes or ECS) behind a load balancer. TLS termination at load balancer. Auto-scaling is enabled for stateless services.  
+
+**API Architecture:** The REST API is versioned (e.g. `/v1/*`). Authentication via OAuth2 or JWT. Endpoints cover all resources (clients, contacts, docs, tasks, etc.).  Rate limiting (e.g. 100 req/min) is applied via API gateway.  
+
+**Event System:** Use message queue (e.g. AWS SQS or RabbitMQ). Events are generated for long-running tasks: for example, when a document upload completes, a “DocumentUploaded” event enqueues a job to notify relevant users and log activity. Scheduled events (via cron) enqueue reminders.  
+
+**Backend/Worker:** A background worker reads queue: it sends emails (e.g. task/invoice reminders), calls external APIs (e.g. Stripe webhooks), and performs batch jobs (e.g. invoice PDF generation).  
+
+**Diagram (conceptual):**  
+```
++------------+    HTTPS     +------------+    +---------+    +----------+
+|            |  <=======>   |   API      |<-->|  Queue  |<-->| Worker   |
+|   Frontend |              |  Server    |    |(Redis)  |    | Process  |
+| (React SPA) |              +------------+    +---------+    +----------+
++------------+                   |  |                   |
+                                 |  |                   |
+                          +------+  +-------+     +-----v--------+
+                          |    Auth/Nginx   |     | External    |
+                          |  (Load Balancer)|     | Integrations|
+                          +-----------------+     | (Stripe, S3) |
+                                                  +-------------+
+```
+*(API server runs the app, connecting to DB/Redis and external services.)*
+
+# 3. Technology Stack
+
+**Backend:** Node.js with Express or NestJS (due to fast prototyping and large ecosystem) or Python with FastAPI/Django (either is acceptable). Both have mature libraries for auth, ORM, and asynchronous tasks. We choose **Node.js + Express** for its JSON-first workflow, or **NestJS** for built-in structure. Authentication via **OAuth2/JWT** (e.g. Passport.js with JWT strategy). Passwords hashed with bcrypt/Argon2. 
+
+**Frontend:** React (with Create React App or Next.js) for single-page apps. React is widely used and pairs well with REST APIs. State management via React Context or Redux (minimal); UI framework like Material-UI or Ant Design for rapid development. Next.js can facilitate server-side rendering if needed for SEO (client portal pages).  
+**Client Portal:** Same React app with role-based routing (e.g. `/portal/*`). Styling can be the same UI library.
+
+**Cloud Infrastructure:** AWS is recommended for reliability and service offerings. 
+- **Containerization:** Docker for all services (node server, worker).  
+- **Orchestration:** AWS ECS (Fargate) or EKS (Kubernetes) for auto-scaling containers. 
+- **CI/CD:** GitHub Actions or GitLab CI to build/test images, push to ECR, and deploy. CD pipeline triggers deploy on main branch merges. 
+- **Database:** AWS RDS PostgreSQL (multi-AZ for failover). Reason: relational queries (joins across clients/tasks, ACID transactions for invoicing) are needed.  
+- **Cache/Queue:** AWS ElastiCache Redis for caching and simple pub/sub/queue (or a dedicated queue like SQS or RabbitMQ/ECS).  
+- **Storage:** AWS S3 for document storage (durable, scalable). 
+
+**Why These Choices:** Node.js/Express is scalable and has rich JWT support. React is standard for modern SPAs. AWS offers managed services (RDS, S3, Cloudfront, SES) reducing ops overhead. Docker/Kubernetes enables portability and easy scaling. 
+
+# 4. Database Architecture
+
+We propose a single-tenant SQL database with multi-tenant schema via a `tenant_id` (firm_id) column. This ensures all data is logically separated per firm (each bookkeeper firm is a tenant). Key tables (one row per tenant entry):
+
+- **Users:** (developer staff and firm owners; not clients)  
+  - `id (PK)`, `firm_id`, `email (unique per firm)`, `password_hash`, `name`, `role` (e.g. owner, staff), `two_factor_enabled`, `created_at`, `updated_at`.  
+  - Index on `(firm_id,email)`. Constraint: unique per firm.  
+
+- **Clients:** (client accounts)  
+  - `id (PK)`, `firm_id`, `name`, `type (individual/company)`, `status`, `created_at`, `updated_at`.  
+  - Index: `(firm_id,name)` for lookup.  
+
+- **Contacts:** (people linked to clients) **[ARCHITECTURE IMPROVEMENT - FIXED MANY-TO-MANY]**  
+  - `id (PK)`, `firm_id`, `name`, `email`, `phone`, `is_signatory` (bool), `created_at`.  
+  - **[ARCHITECTURE IMPROVEMENT]** Contacts are now independent entities that can be linked to multiple clients (e.g., John Smith can be linked to both his personal account and his company account).
+
+- **ClientContacts:** (many-to-many join table) **[ARCHITECTURE IMPROVEMENT - NEW TABLE]**  
+  - `id (PK)`, `client_id (FK→Clients.id)`, `contact_id (FK→Contacts.id)`, `role` (e.g., "Primary", "Accountant", "Signatory"), `created_at`.  
+  - Composite unique index on `(client_id, contact_id)` to prevent duplicates.  
+  - **[ARCHITECTURE IMPROVEMENT]** This structure correctly models accounting relationships where one person may be associated with multiple client entities.  
+
+- **ClientTags:** (optional tagging)  
+  - `id`, `firm_id`, `name` – list of tags defined by firm.  
+
+- **ClientTagLink:** (many-to-many: clients ↔ tags)  
+  - `client_id (FK)`, `tag_id (FK)`. Composite PK or unique index.  
+
+- **Folders:** (document folders within a client)  
+  - `id (PK)`, `client_id`, `name`, `allow_client_upload (bool)`, `created_at`.  
+  - Index: `(client_id,name)` unique to avoid duplicate folder names.  
+
+- **Documents:** (file metadata)  
+  - `id (PK)`, `folder_id (FK→Folders)`, `uploaded_by_user_id (FK→Users)`, `file_key` (storage key in S3), `filename`, `mime_type`, `size_bytes`, `uploaded_at`.  
+  - `is_shared_link` flag or similar if we allow public links.  
+  - Index: `folder_id`.  
+
+- **Messages:** (email communication log and activity feed) **[SIMPLIFIED FOR MVP]**  
+  - `id (PK)`, `client_id (FK)`, `sender_user_id (FK or null for client)`, `subject`, `content (text)`, `message_type` (email_sent, email_received, note, activity), `created_at`.  
+  - **[SIMPLIFIED FOR MVP]** This table logs email communications and internal notes, not real-time chat. Attachments are stored as Documents with a reference link.  
+  - **[OPTIONAL FUTURE FEATURE]** Real-time websocket chat can be added later by extending this table or creating a separate Chat table with presence/typing indicators.  
+
+- **Tasks:** **[SIMPLIFIED FOR MVP - STATUS MODEL]**  
+  - `id (PK)`, `client_id (FK)`, `title`, `details`, `assigned_to (FK→Users)`, `due_date`, `status` (NEW, IN_PROGRESS, WAITING_CLIENT, REVIEW, COMPLETED), `created_by (FK→Users)`, `created_at`, `updated_at`.  
+  - **[SIMPLIFIED FOR MVP]** Status uses a simple enum model instead of complex workflow pipelines. This reduces implementation complexity while still providing clear job tracking.  
+  - **[OPTIONAL FUTURE FEATURE]** Workflow pipelines (similar to TaxDome) with customizable stages, automation triggers, and Kanban boards can be added later by introducing a Pipelines table and linking tasks to pipeline stages.  
+  - Index: `(client_id, due_date)`, `(assigned_to, status)`.  
+
+- **Invoices:**  
+  - `id`, `client_id (FK)`, `number` (string), `issue_date`, `due_date`, `status` (draft/issued/paid), `total_amount`, `tax_amount`, `created_by (FK→Users)`, `created_at`.  
+  - Unique index on `(client_id, number)`.  
+
+- **InvoiceLineItems:**  
+  - `id`, `invoice_id (FK)`, `description`, `quantity`, `unit_price`, `total_price`.  
+  - FK constraint to invoice.  
+
+- **Payments:**  
+  - `id`, `invoice_id (FK)`, `amount`, `payment_date`, `payment_method` (card, ACH, etc.), `provider_tx_id`, `created_at`.  
+  - Index on `invoice_id`.  
+
+- **TimeEntries:** **[OPTIONAL FUTURE FEATURE]** (if implemented post-MVP)  
+  - `id`, `client_id (FK)`, `user_id (FK)`, `date`, `hours`, `description`, `billed (bool)`, `created_at`.  
+  - **[OPTIONAL FUTURE FEATURE]** Time tracking is not required for MVP but can be added later for firms that bill hourly.  
+
+- **Reminders/Notifications:**  
+  - `id`, `user_id (FK)`, `client_id`, `task_id/invoice_id` (depending on type), `type` (invoice_reminder, task_reminder), `sent_at`. (Could also use a queue log instead.)  
+
+- **AuditLogs (Activity Feed):**  
+  - `id`, `client_id`, `entity_type` (e.g. “Task”, “Invoice”), `entity_id`, `action` (created/updated/deleted), `performed_by (FK→Users)`, `details (JSON)`, `timestamp`.  
+  - This supports an audit trail as described in the activity feed【154†L676-L684】.  
+
+**Relationships:** All main records have a `client_id` linking to `Clients`, and `Clients` link to a `firm_id`. Every table includes `firm_id` implicitly through foreign keys. This ensures tenant isolation. We use **row-based tenancy** (one database) because it’s easier to manage and scales to thousands of tenants with careful indexing.  
+
+**Indexes/Constraints:** Foreign key constraints enforce referential integrity. Common queries (e.g. get all invoices for a client) benefit from indexes on `(client_id)` on tasks, invoices, payments, documents, etc. Unique constraints prevent duplicate invoice numbers and ensure data integrity.  
+
+**Multi-Tenant Strategy:** Each firm is a **tenant** identified by `firm_id`. All queries must filter by `firm_id`. The webserver determines `firm_id` from the logged-in user (their firm). This isolates data: one firm cannot see another’s rows. For scaling, we can use a single large Postgres database with all tenants, or in the future move heavy tenants to their own databases.  
+
+# 5. API Design
+
+We define a REST API (using JSON over HTTPS) for all functionality. Each request must include authentication (JWT in `Authorization: Bearer` header). Below are representative endpoints (names and payloads are examples):
+
+**Auth**  
+- `POST /auth/register` – Register a new firm owner (fields: name, email, password).  
+- `POST /auth/login` – Login (email, password) → returns JWT token and user info.  
+- `POST /auth/forgot-password` – (Optional) request password reset email.  
+- `POST /auth/verify-2fa` – If 2FA is enabled.  
+
+**Clients**  
+- `GET /clients` – List clients for firm. Returns array of client objects. (Filter params optional)  
+- `POST /clients` – Create new client (body includes name, type, status, contacts[]).  
+- `GET /clients/{client_id}` – Details of one client.  
+- `PATCH /clients/{client_id}` – Update client info.  
+
+**Contacts**  
+- `POST /clients/{id}/contacts` – Add contact to client.  
+- `PATCH /contacts/{contact_id}` – Update contact.  
+
+**Documents**  
+- `POST /clients/{id}/folders` – Create folder (name, allow_client_upload).  
+- `GET /clients/{id}/folders` – List folders.  
+- `POST /folders/{id}/upload` – Upload a document to folder (multipart form data). Returns document ID.  
+- `GET /documents/{id}` – Download or preview link for a document (signed URL or streaming).  
+- `DELETE /documents/{id}` – Delete a document.  
+
+**Messaging**  
+- `GET /clients/{id}/messages` – List chat messages for a client.  
+- `POST /clients/{id}/messages` – Send a message (body: content, optional attachment file). This creates a new message in chat.  
+
+**Tasks**  
+- `GET /clients/{id}/tasks` – List tasks for a client.  
+- `POST /clients/{id}/tasks` – Create a task (title, details, due_date, assigned_to).  
+- `PATCH /tasks/{task_id}` – Update task status or details (e.g. mark completed).  
+- `DELETE /tasks/{task_id}` – Delete a task.  
+
+**Invoices**  
+- `GET /clients/{id}/invoices` – List invoices for a client.  
+- `POST /clients/{id}/invoices` – Create an invoice. Body includes line items. System generates PDF and number.  
+- `GET /invoices/{id}` – Get invoice details and PDF link.  
+- `POST /invoices/{id}/send` – Email invoice to client (could be auto after creation).  
+- `POST /invoices/{id}/pay` – (Optional front-end) triggers payment (returns Stripe Checkout session ID).  
+
+**Payments**  
+- `POST /payments/stripe/webhook` – Stripe webhook endpoint to receive payment confirmation. Payload includes invoice ID in metadata.  
+- `GET /clients/{id}/payments` – List payments for client.  
+
+**Client Portal Actions**  
+- `POST /portal/clients/{client_id}/upload` – Client uses this to upload file to a designated folder (authenticated by client login).  
+- `POST /portal/clients/{client_id}/invoices/{invoice_id}/pay` – Client initiates payment (redirect to Stripe).  
+
+**Request Formats:** JSON for API calls, except file upload which uses multipart/form-data. Responses are JSON.  
+
+**Authentication:** All endpoints (except `/auth/*`) require a valid JWT. Staff users belong to a firm. Clients who log into portal have limited-access tokens (or session cookies) that only allow their client-specific endpoints (e.g. upload or view their data).  
+
+**Rate Limiting:** Implement at API gateway or app level (e.g. 100 req/min per user). Throttle suspicious patterns (e.g. repeated login failures).  
+
+# 6. Client Portal Architecture
+
+The **Client Portal** is a secure subset of the application accessible to clients (their customers). Its flow: 
+
+- **Authentication:** Clients are invited and set a password. They log in at `https://app.domain.com/portal`. Their session token only allows access to their firm’s portal and only their own client record.  
+- **Document Upload:** Client logs in, goes to “Documents” tab, and can upload files into allowed folders (e.g. “Client Uploads”). Frontend sends file to `/portal/clients/{id}/upload`. Backend verifies the token, stores file in S3 under that client’s folder. Generates a Document record.  
+- **Invoice Payment:** Client views invoice list. Clicking “Pay” calls `/portal/clients/{id}/invoices/{invoice_id}/pay`, which initiates a Stripe Checkout. After payment, Stripe calls webhook to confirm. Client sees “Paid” status.  
+- **Messaging:** Client uses portal chat UI. When client sends a message, frontend POSTs to `/clients/{id}/messages`. Backend verifies the user is that client, creates a message in the chat. Staff see it in the main app, and replies via the same message endpoint.  
+- **Task Completion:** If a task is assigned to client, it appears in portal. Client checks a “Done” box. Frontend hits `/tasks/{task_id}` with status update. Backend logs completion.  
+
+**Security Isolation:** The client portal is isolated via authentication tokens: a client’s token is scoped to one client ID. Backend middleware checks that a portal request’s client_id matches the token. Staff cannot access the portal via this route, and clients cannot access other clients’ data. All portal pages are static React app pages that call the API. 
+
+# 7. File Storage System
+
+Documents are stored in an S3-compatible object store. The design:
+
+- **Bucket Layout:** A single S3 bucket (e.g. `practice-docs`) with keys prefixed by `firm/{firm_id}/client/{client_id}/folder/{folder_id}/doc_{doc_id}`. This ensures logical separation by tenant.  
+- **Upload Flow:** Staff upload via the web UI: the server receives the file via API and streams it to S3 (using AWS SDK). For large files, multipart upload is used. For client upload links, we generate a time-limited **pre-signed PUT URL** so the client can upload directly.  
+- **Signed URLs:** For downloading/viewing documents, backend returns an S3 pre-signed GET URL valid for a short time (e.g. 1 hour). The frontend then fetches the document from S3.  
+- **Validation:** On upload, enforce file size limits (e.g. 100MB). Validate file type on frontend (optional) and backend.  
+- **Virus Scanning:** A background worker can trigger a virus scan on new uploads. For MVP, we may rely on S3’s scanning (if available) or a simple ClamAV scan job. Flag or quarantine if malware is detected.  
+- **Metadata:** Each file’s metadata (name, size, MIME type) is stored in the Documents table. File content is only in object storage.  
+- **Encryption:** S3 server-side encryption (SSE-S3 or SSE-KMS) for data at rest. All transfers occur over HTTPS (TLS).  
+
+This design ensures durability (S3 by default) and scalability (virtually unlimited storage). By using signed URLs, our servers never handle raw file download streams for clients, reducing load.  
+
+# 8. Messaging System **[SIMPLIFIED FOR MVP]**
+
+**[SIMPLIFIED FOR MVP]** The messaging feature for MVP is implemented as email communication logging and an activity feed, not real-time chat. This significantly reduces complexity while still providing essential communication tracking.
+
+- **Storage:** Messages are stored in the `Messages` table. Each message has `sender_user_id` (null or user ID), `client_id`, `subject`, `content`, `message_type` (email_sent, email_received, note, activity), and optional attachment references (attachments stored as Documents).  
+- **Flow:** When a user sends an email or creates a note, the client-side app POSTs to `/clients/{id}/messages`. The server writes to DB and returns the new message. Email sending is handled via AWS SES or SendGrid.  
+- **Activity Feed:** The Messages table doubles as an activity feed, logging all client interactions: emails sent/received, documents uploaded, tasks created/completed, invoices issued. This provides a chronological audit trail.  
+- **Attachments:** If a message has an attachment, the file is first uploaded via the Documents API. The message record then includes a reference to that Document ID.  
+- **Notifications:** On new email or important activity, staff or client gets an email alert. In-app notifications can be added as a simple enhancement.  
+- **Access Control:** The API checks that only the assigned firm's staff can read/send messages for that client, and that the client token matches the `client_id`.  
+
+**[OPTIONAL FUTURE FEATURE]** Real-time chat with WebSockets can be added in a future phase by:
+- Adding a separate `ChatMessages` table or extending the Messages table with `is_realtime` flag
+- Implementing WebSocket connections (via Socket.io or similar) for live updates
+- Adding presence indicators, typing status, and read receipts
+- Implementing message threading and reactions
+
+**[SIMPLIFIED FOR MVP]** For MVP, email + activity log provides 80% of the value with 20% of the complexity. This keeps the 4-6 month timeline realistic. 
+
+This system keeps an audit trail of communication. All messages have timestamps for chronology.  
+
+# 9. Task & Reminder Engine
+
+Tasks help track to-dos and automatically notify.
+
+- **Task Creation:** Staff create tasks via API. Each task has `due_date` and `assigned_to`. After creation, the task is visible in both the staff dashboard and optionally on the client portal (if client is the assignee, e.g. “Fill out organizer”).  
+- **Reminder Scheduling:** A background worker runs every hour (Cron job) and checks for tasks/invoices approaching or past due. For any task where `due_date - now <= reminder_threshold` (e.g. 2 days) and not completed, or any unpaid invoice past due, the worker enqueues an email.  
+- **Email Reminders:** The worker uses SMTP (AWS SES or Mailgun) to send templated reminder emails to clients or staff. Example: “You have 3 tasks overdue.”  
+- **Notification Delivery:** Besides email, we could also send in-app alerts. For MVP, email suffices.  
+- **State Changes:** When a staff marks a task completed (via API PATCH), the task’s status updates. If overdue, no further reminders are sent.  
+- **Configuration:** Firm owner can set reminder intervals and enable/disable as needed.  
+
+This engine ensures important dates are not missed without requiring manual checks.  
+
+# 10. Billing & Payment System
+
+**Invoice Generation:** Staff create invoices in-app. The backend generates a PDF (using a library like PDFKit or wkhtmltopdf) combining firm branding and line items. The invoice number is auto-generated per client (e.g. INV-0001). The invoice record (and PDF link) are stored in DB.
+
+**Payment Integration:** We integrate **Stripe** as the payment gateway for credit/debit and ACH. (For US-only at launch, Stripe covers cards/ACH.) The flow is: 
+1. Staff “Send Invoice” triggers an email with a payment link (provided by Stripe Checkout session). 
+2. The client clicks the link, which takes them to Stripe-hosted payment page. 
+3. On success, Stripe calls our `/payments/stripe/webhook` endpoint. 
+4. Our server validates the webhook, marks the invoice as paid in the DB, and creates a Payment record. 
+5. The client portal then shows invoice as “Paid.” 
+
+Failures (card declined) are handled by Stripe and can trigger retries. We record any errors in the AuditLogs for analysis. Fees (Stripe processing) are not charged to the client in MVP or are marked as a small added line item if required.  
+
+**Recurring Billing (Optional Phase):** Not in initial MVP. If added later, it would use Stripe Subscriptions.  
+
+**Failed Payment Handling:** If payment fails, the webhook still notifies us. We then email the client with the error and next steps.  
+
+Stripe integration uses HTTPS with stored API keys (environment variables) and webhooks secured by signatures. We ensure PCI compliance by not storing any card data ourselves.  
+
+# 11. Authentication & Security
+
+- **Authentication:** We use **JWT tokens** for session management. Upon login (`/auth/login`), server issues a JWT (with firm_id, user_id, roles) signed with a secret. The frontend stores it (HTTP-only cookie or memory storage). Each API request checks the token.  
+- **Password Security:** Passwords hashed with **bcrypt** or **Argon2** with strong work factor. We enforce password complexity (min length, characters). For clients’ portal accounts, an initial password is set via email link.  
+- **2FA (Optional):** By default, simple email+password is used. Two-factor (via email/SMS code or authenticator app) can be enabled per firm if needed.  
+- **Roles & Permissions:** Two categories of users: *Staff* (owner or team) and *Clients*. Staff have roles (owner/admin) enforced by role flags; clients have limited portal-only role. Middleware ensures staff endpoints cannot be accessed by a client token.  
+- **Data Encryption:**  
+  - **In transit:** All communication uses HTTPS (TLS1.2+). We terminate SSL at load balancer (e.g. AWS ELB) and require HTTPS.  
+  - **At rest:** RDS (Postgres) uses encrypted volumes. S3 uses server-side encryption (AES-256).  
+- **File Access Protection:** Files are only accessible via signed URLs. The server verifies permissions before generating a signed URL. There are no public buckets.  
+- **Rate Limiting:** We implement API rate limits (e.g. with a library or API Gateway) to prevent brute force or abuse.  
+- **Audit Logs:** All critical actions are logged in the `AuditLogs` table. This includes login attempts, password changes, data exports, invoice issuance, etc. The Activity Feed (see section 4) provides an admin view of these logs for security monitoring【154†L676-L684】.  
+- **Input Validation:** All user input is validated server-side to prevent SQL injection or XSS. Use parameterized queries (ORM) and auto-escape HTML output.  
+- **Secure Configuration:** Secrets (DB passwords, JWT secret, Stripe keys) are stored in environment variables or AWS Secrets Manager, never in code.  
+- **Compliance:** The design avoids storing any unnecessary sensitive data. If GDPR applies, each tenant’s data can be purged on request, and we provide data export.  
+
+# 12. SaaS Multi-Tenant Design
+
+We adopt a **single-tenant-per-firm** model within one application deployment. Key points:  
+
+- **Tenant Isolation:** Each firm is a tenant. The `firm_id` (or org_id) is included in all relevant tables (Clients, Invoices, etc.). Every query filters by `firm_id` based on the authenticated user. This logically segregates data.  
+- **Database Strategy:** A single Postgres instance hosts all firms. For higher tiers or large firms, we could spin up dedicated schemas or even DB instances, but initial MVP uses one DB for simplicity. We ensure `firm_id` is part of every critical record.  
+- **Routing:** When a user signs up or logs in, they specify or are associated with a subdomain or account domain (e.g. `firmname.app.com`). Middleware resolves the firm context. All data access is scoped accordingly.  
+- **Scaling:** As usage grows, we can shard by tenant: e.g. assign heavy tenants to separate databases. Redis and S3 are multi-tenant by key prefixes.  
+- **Tenant Configuration:** Settings (e.g. branding, email templates) are stored per-tenant (a JSON column on a `Settings` table keyed by `firm_id`).  
+
+This model keeps isolation while sharing infrastructure. Security is enforced in code: no firm can access another’s data without its `firm_id`. Thorough testing (per-tenant test accounts) ensures no data bleed.  
+
+# 13. Infrastructure & DevOps
+
+**Containers & Orchestration:** We will containerize the app with Docker. Each component (API server, worker) runs in a container. Use AWS ECS (Fargate) or Kubernetes (EKS). Fargate is simpler for a small team (serverless containers). 
+
+**CI/CD Pipeline:** Use GitHub Actions: on commit to `main`, run tests and linters, build Docker image, push to ECR. On passing, deploy to staging. Manual trigger or PR merge to deploy to production.  
+**Infrastructure as Code:** Terraform or AWS CloudFormation to provision resources (VPC, subnets, RDS, ECS cluster, ALB, S3 bucket, etc.).  
+
+**Networking:**  
+- Load Balancer (e.g. AWS ALB) routing `HTTPS` to containers on port 443. The ALB handles SSL (cert from ACM).  
+- Security Groups restrict inbound to HTTPS, outbound open to internet (for Stripe, email, etc.).  
+- VPC with private subnets for RDS, ECS tasks; public subnets for ALB.  
+
+**Monitoring & Logging:**  
+- Use AWS CloudWatch for logs/metrics of containers. Forward app logs to CloudWatch or a managed logging (Elasticsearch).  
+- Set alerts for errors (via CloudWatch alarms or Sentry). Monitor uptime (health checks).  
+- Use a performance monitoring (DataDog/NewRelic) on key endpoints (optional).  
+
+**Backup & Recovery:**  
+- RDS automated backups (daily snapshots, PITR).  
+- S3 versioning enabled for document bucket.  
+- Periodic export of DB (as extra precaution).  
+
+**Email Service:** Use AWS SES or SendGrid for sending emails (invoices, reminders). Configure SPF/DKIM for deliverability.  
+
+**Compute Estimate:** Initially 2x t3.small ECS tasks (1 API, 1 Worker), RDS db.t3.small. This can scale up as needed.  
+
+# 14. Performance & Scalability
+
+The system is designed to scale horizontally:
+
+- **Caching:** Use Redis to cache frequent reads (e.g. client list, static reference data). This reduces DB load.  
+- **API Scaling:** The stateless API containers can auto-scale based on CPU or request count. Tests should simulate up to thousands of requests.  
+- **DB Scaling:** For read-heavy loads, consider read replicas in RDS. Most queries (clients, docs) are read; invoices/payments are writes. Indexes (on foreign keys, date fields, tags) ensure queries remain fast.  
+- **Queues:** The message queue decouples background tasks, preventing API delays. e.g. invoice PDF creation or email sending is async.  
+- **CDN:** Serve frontend static assets via CDN (CloudFront) for speed.  
+- **Concurrency:** For high doc uploads/downloads, S3 handles bandwidth. Use signed URLs so containers aren’t bottlenecked.  
+- **Limits:** Ensure the DB can handle scale. With efficient indexes, RDS can support thousands of tenants. Example target: 10,000 firms, 100,000 clients, millions of docs. This may require sharding or multi-region DB for global scale.  
+
+**Indexing:** Critical indexes: `(firm_id)`, `(client_id)`, `(invoice_id)`, `(due_date)`. For text search (if needed later), use full-text index.  
+
+**Queue Processing:** The worker pool should scale (2–3 workers) to handle spikes (e.g. sending 1000 reminders after midnight). Using SQS/AWS SNS ensures reliable delivery.  
+
+# 15. Security & Compliance
+
+- **Encryption:** As above, all data encrypted in transit (TLS) and at rest (DB and S3 encryption). We follow AWS security best practices (IAM roles, least privilege).  
+- **Authentication Security:** Use OAuth2 flows with strong JWTs (short TTL with refresh). Passwords hashed with bcrypt/Argon2. 2FA can be added for sensitive operations (e.g. payouts).  
+- **Authorization:** Role-based access ensures staff see only their clients; clients see only their own data. We log every permission check fail for security review.  
+- **Audit Logging:** The Activity Feed (AuditLogs table) records all sensitive operations. We monitor for anomalies (e.g. data exports)【154†L676-L684】.  
+- **PCI-DSS:** We do not store card data; Stripe handles that. We use SSL and secure code to be PCI compliant.  
+- **GDPR/Data Privacy:** Tenants can request data export or deletion. We will provide data encryption and allow deletion of all tenant data on demand.  
+- **Backup Security:** Database snapshots and S3 backups are encrypted and restricted.  
+- **Firewall/Rate Limits:** Protect APIs from brute force (account lockout on failed logins), and network-level restrictions.  
+- **Third-Party Dependence:** All third-party services (Stripe, AWS) are reputable and comply with necessary standards.  
+
+# 16. Development Roadmap
+
+**Phase 1 (Weeks 1–8): Core Backend & API**  
+- Set up project repo, CI/CD pipeline, basic auth.  
+- Implement user/firm registration and login (JWT).  
+- Design DB schema; implement migrations.  
+- CRUD for Clients/Contacts.  
+- File upload/download APIs (initial integration with S3).  
+- Basic task APIs.  
+
+**Phase 2 (Weeks 5–12): Client Portal & Frontend**  
+- Develop React frontend for staff and client portal.  
+- Implement client portal login.  
+- Integrate document upload UI and listing.  
+- Implement task creation/listing UI.  
+- Messaging UI (basic chat).  
+
+**Phase 3 (Weeks 9–16): Billing & Payments**  
+- Invoice creation and PDF generation (backend).  
+- Stripe integration and webhook handling.  
+- Client portal invoice display and pay button.  
+- Reminders engine (email reminder service).  
+
+**Phase 4 (Weeks 13–20): Additional Features & Polish**  
+- E-signature integration (basic).  
+- Email sending and template management.  
+- Security hardening (2FA opt-in, audit logs).  
+- Extensive testing, bug fixes, and documentation.  
+
+**Team:** With 1 developer, timeline might double (~12–16 months). With a team (4 devs), 4–6 months is realistic given iterative agile sprints.  
+
+# 17. Cost Estimation
+
+Estimate monthly infrastructure costs (AWS, approximate) at different scales:
+
+| **Users**   | **Compute**       | **DB & Storage**       | **Bandwidth & Misc** | **Email/SMS/Stripe Fees** | **Total ~$** |
+| ----------- | ----------------- | ---------------------- | -------------------- | ------------------------ | ------------ |
+| **100**     | ECS: 1 small instance (₹2k)  | RDS small (₹2k), 10GB S3 (₹100) | Low (<₹500)           | SES emails (negl), Stripe fees on transactions (~2.9%) | ~~₹5k~~ |
+| **1000**    | ECS: 2-3 instances (~₹6k)   | RDS medium (₹6k), 50GB S3 (₹500) | Medium (~₹2k)         | SES (few ₹), Stripe fees larger | ~~₹15k~~ |
+| **10,000**  | ECS: 5-6 instances (~₹12k) | RDS large (₹15k), 200GB S3 (₹2k) | Higher (~₹10k)        | SES, Stripe fees significant    | ~~₹40k~~ |
+
+*(₹: approximate Indian Rupees equivalent of USD per month)*  
+
+Network egress (clients downloading docs) could be a cost; use CloudFront with free tier. Email (SES or SendGrid) is relatively cheap. Stripe fees (2.9% + small fixed fee) are paid by firms or passed to clients, not to the platform.  
+
+These are coarse estimates. Actual costs depend on instance types and usage.  
+
+# 18. Risks & Technical Challenges
+
+- **Document Storage Scale:** Managing millions of files requires careful planning. S3 scales well, but metadata queries need to be efficient. We mitigate by indexing and possibly using DynamoDB for metadata if SQL becomes slow.  
+- **Payment Reliability:** Network failures during webhook processing could cause stale invoice status. We implement idempotent webhook handling and retry logic. Use Stripe’s event retry policy.  
+- **Security Risks:** Multi-tenant model risk: a bug might expose another firm’s data. Mitigate by strict `firm_id` checks on all queries, and penetration testing. Use prepared statements to avoid injection.  
+- **User Authentication:** Stolen tokens risk. We use short-lived JWTs and refresh tokens. We also support manual session revoke (logout all devices).  
+- **Background Job Failures:** If reminder jobs fail, tasks could be missed. We log job failures and have a dead-letter queue. Regular health checks monitor the worker processes.  
+- **Email Deliverability:** Reminder emails might go to spam. We set proper SPF/DKIM and allow firms to customize email content.  
+- **Scaling Complexity:** If one tenant grows large, single DB could become bottleneck. We can move heavy tenants to dedicated DBs as needed.  
+- **Compliance:** Storing clients’ financial data requires diligence. We follow GDPR guidelines (right to erasure), though data is encrypted and access-audited.  
+
+Each risk is managed by using tried-and-tested patterns (AWS managed services, libraries) and by implementing monitoring and alerts.  
+
+**Conclusion:** This specification lays out a robust, scalable, and secure architecture for a lightweight accounting practice management SaaS. It balances quick time-to-market (4–6 month build) with best practices (containerization, managed services, encryption) to ensure a production-grade platform. All core requirements (light CRM, portal, docs, tasks, billing) are covered, and future expansion paths (e.g. integrations, automations) are clear once the MVP is stable.

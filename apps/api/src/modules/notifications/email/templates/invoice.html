@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Invoice</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 0; }
+    .container { max-width: 600px; margin: 40px auto; background: #fff; border-radius: 8px; padding: 40px; }
+    h2 { color: #1a1a1a; }
+    p { color: #555; line-height: 1.6; }
+    .amount { font-size: 24px; font-weight: bold; color: #1a1a1a; margin: 20px 0; }
+    a.button { display: inline-block; margin-top: 20px; padding: 12px 24px; background: #4f46e5; color: #fff; text-decoration: none; border-radius: 6px; font-weight: bold; }
+    .footer { margin-top: 40px; font-size: 12px; color: #aaa; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Invoice #{{invoiceNumber}} from {{firmName}}</h2>
+    <p>You have a new invoice ready for payment.</p>
+    <p class="amount">Total: {{totalAmount}}</p>
+    <p>Please click the button below to view and pay your invoice.</p>
+    <a class="button" href="{{portalUrl}}">View &amp; Pay Invoice</a>
+    <div class="footer">
+      <p>If you have questions about this invoice, please contact {{firmName}}.</p>
+    </div>
+  </div>
+</body>
+</html>

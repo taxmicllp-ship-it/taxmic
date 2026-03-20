@@ -1,0 +1,175 @@
+// =============================================================================
+// DOMAIN: AUTH — firms, users, roles, permissions, role_permissions,
+//                user_roles, firm_settings, user_settings
+// =============================================================================
+
+model firms {
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String    @db.VarChar(255)
+  slug       String    @unique @db.VarChar(100)
+  email      String    @db.VarChar(255)
+  phone      String?   @db.VarChar(20)
+  address    String?
+  website    String?   @db.VarChar(255)
+  logo_url   String?   @db.VarChar(500)
+  timezone   String?   @db.VarChar(50)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  // Relations
+  users              users[]
+  clients            clients[]
+  contacts           contacts[]
+  folders            folders[]
+  documents          documents[]
+  tasks              tasks[]
+  invoices           invoices[]
+  payments           payments[]
+  notifications      notifications[]
+  email_events       email_events[]
+  activity_events    activity_events[]
+  storage_usage      storage_usage?
+  subscriptions      subscriptions?
+  user_roles         user_roles[]
+  firm_feature_flags firm_feature_flags[]
+  invoice_sequences  invoice_sequences?
+  firm_settings      firm_settings?
+  client_contacts    client_contacts[]
+  client_addresses   client_addresses[]
+
+  @@index([email])
+  @@index([deleted_at])
+}
+
+model users {
+  id             String    @id @default(uuid()) @db.Uuid
+  firm_id        String    @db.Uuid
+  email          String    @db.VarChar(255)
+  password_hash  String    @db.VarChar(255)
+  first_name     String    @db.VarChar(100)
+  last_name      String    @db.VarChar(100)
+  phone          String?   @db.VarChar(20)
+  avatar_url     String?   @db.VarChar(500)
+  is_active      Boolean   @default(true)
+  email_verified Boolean   @default(false)
+  last_login_at  DateTime?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  deleted_at     DateTime?
+
+  // Relations
+  firm                  firms                @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  user_roles            user_roles[]
+  documents_uploaded    documents[]          @relation("uploader")
+  tasks_created         tasks[]              @relation("task_creator")
+  task_assignments      task_assignments[]   @relation("assignee")
+  task_assignments_made task_assignments[]   @relation("assigner")
+  task_comments         task_comments[]
+  notifications         notifications[]
+  activity_events       activity_events[]    @relation("actor_user")
+  firm_feature_flags    firm_feature_flags[]
+  failed_jobs_resolved  failed_jobs[]
+  document_versions     document_versions[]  @relation("document_version_uploader")
+  user_settings         user_settings?
+
+  @@unique([firm_id, email])
+  @@index([firm_id])
+  @@index([email])
+  @@index([deleted_at])
+}
+
+model roles {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(50)
+  description String?
+  is_system   Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  // Relations
+  role_permissions role_permissions[]
+  user_roles       user_roles[]
+}
+
+model permissions {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(100)
+  resource    String   @db.VarChar(50)
+  action      String   @db.VarChar(50)
+  description String?
+  created_at  DateTime @default(now())
+
+  // Relations
+  role_permissions role_permissions[]
+
+  @@index([resource])
+  @@index([action])
+}
+
+model role_permissions {
+  id            String   @id @default(uuid()) @db.Uuid
+  role_id       String   @db.Uuid
+  permission_id String   @db.Uuid
+  created_at    DateTime @default(now())
+
+  // Relations
+  role       roles       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission permissions @relation(fields: [permission_id], references: [id], onDelete: Restrict)
+
+  @@unique([role_id, permission_id])
+  @@index([role_id])
+  @@index([permission_id])
+}
+
+model user_roles {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  role_id    String   @db.Uuid
+  firm_id    String   @db.Uuid
+  created_at DateTime @default(now())
+
+  // Relations
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role roles @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  firm firms @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, role_id, firm_id])
+  @@index([user_id])
+  @@index([firm_id])
+  @@index([role_id])
+}
+
+model firm_settings {
+  id              String   @id @default(uuid()) @db.Uuid
+  firm_id         String   @unique @db.Uuid
+  timezone        String   @default("America/New_York") @db.VarChar(50)
+  currency        String   @default("USD") @db.VarChar(3)
+  date_format     String   @default("MM/DD/YYYY") @db.VarChar(20)
+  invoice_prefix  String?  @db.VarChar(10)
+  invoice_terms   String?
+  invoice_footer  String?
+  logo_url        String?  @db.VarChar(500)
+  primary_color   String?  @db.VarChar(7)
+  email_from_name String?  @db.VarChar(255)
+  email_reply_to  String?  @db.VarChar(255)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  // Relations
+  firm firms @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+}
+
+model user_settings {
+  id                    String   @id @default(uuid()) @db.Uuid
+  user_id               String   @unique @db.Uuid
+  timezone              String?  @db.VarChar(50)
+  language              String   @default("en") @db.VarChar(10)
+  email_notifications   Boolean  @default(true)
+  desktop_notifications Boolean  @default(true)
+  theme                 String   @default("light") @db.VarChar(20)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  // Relations
+  user users @relation(fields: [user_id], references: [id])
+}

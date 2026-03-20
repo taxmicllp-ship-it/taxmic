@@ -1,0 +1,74 @@
+// =============================================================================
+// DOMAIN: TASKS — tasks, task_assignments, task_comments
+// =============================================================================
+
+model tasks {
+  id            String                   @id @default(uuid()) @db.Uuid
+  firm_id       String                   @db.Uuid
+  client_id     String?                  @db.Uuid
+  title         String                   @db.VarChar(255)
+  description   String?
+  status        task_status_enum         @default(new)
+  priority      task_priority_enum       @default(medium)
+  due_date      DateTime?                @db.Date
+  completed_at  DateTime?
+  created_by    String?                  @db.Uuid
+  search_vector Unsupported("tsvector")?
+  created_at    DateTime                 @default(now())
+  updated_at    DateTime                 @updatedAt
+  deleted_at    DateTime?
+
+  // Relations
+  firm             firms              @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  client           clients?           @relation(fields: [client_id], references: [id])
+  creator          users?             @relation("task_creator", fields: [created_by], references: [id])
+  task_assignments task_assignments[]
+  task_comments    task_comments[]
+
+  @@index([firm_id])
+  @@index([client_id])
+  @@index([status])
+  @@index([priority])
+  @@index([due_date])
+  @@index([created_by])
+  @@index([deleted_at])
+  @@index([firm_id, status, due_date])
+}
+
+model task_assignments {
+  id          String   @id @default(uuid()) @db.Uuid
+  task_id     String   @db.Uuid
+  user_id     String   @db.Uuid
+  assigned_by String?  @db.Uuid
+  assigned_at DateTime @default(now())
+  created_at  DateTime @default(now())
+
+  // Relations
+  task     tasks  @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  assignee users  @relation("assignee", fields: [user_id], references: [id])
+  assigner users? @relation("assigner", fields: [assigned_by], references: [id])
+
+  @@unique([task_id, user_id])
+  @@index([task_id])
+  @@index([user_id])
+  @@index([assigned_by])
+}
+
+model task_comments {
+  id         String    @id @default(uuid()) @db.Uuid
+  task_id    String    @db.Uuid
+  user_id    String?   @db.Uuid
+  comment    String
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  // Relations
+  task tasks  @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user users? @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([task_id])
+  @@index([user_id])
+  @@index([created_at])
+  @@index([deleted_at])
+}

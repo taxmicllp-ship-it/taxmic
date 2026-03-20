@@ -1,0 +1,74 @@
+// =============================================================================
+// DOMAIN: SAAS BILLING — plans, subscriptions, subscription_events
+// =============================================================================
+
+model plans {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String   @db.VarChar(100)
+  slug           String   @unique @db.VarChar(50)
+  description    String?
+  price_monthly  Decimal  @db.Decimal(10, 2)
+  price_annual   Decimal  @db.Decimal(10, 2)
+  max_clients    Int?
+  max_users      Int?
+  max_storage_gb Int?
+  features          Json?
+  is_active         Boolean  @default(true)
+  sort_order        Int      @default(0)
+  stripe_product_id String?  @db.VarChar(255)
+  stripe_price_id   String?  @db.VarChar(255)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  // Relations
+  subscriptions subscriptions[]
+
+  @@index([is_active])
+  @@index([sort_order])
+  @@index([stripe_product_id])
+  @@unique([stripe_price_id])
+}
+
+model subscriptions {
+  id                     String                   @id @default(uuid()) @db.Uuid
+  firm_id                String                   @unique @db.Uuid
+  plan_id                String                   @db.Uuid
+  status                 subscription_status_enum @default(trialing)
+  stripe_subscription_id String?                  @db.VarChar(255)
+  stripe_customer_id     String?                  @db.VarChar(255)
+  current_period_start   DateTime?
+  current_period_end     DateTime?
+  cancel_at_period_end   Boolean                  @default(false)
+  canceled_at            DateTime?
+  trial_start            DateTime?
+  trial_end              DateTime?
+  created_at             DateTime                 @default(now())
+  updated_at             DateTime                 @updatedAt
+
+  // Relations
+  firm                firms                 @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  plan                plans                 @relation(fields: [plan_id], references: [id])
+  subscription_events subscription_events[]
+
+  @@index([plan_id])
+  @@index([status])
+  @@index([stripe_subscription_id])
+  @@index([current_period_end])
+}
+
+model subscription_events {
+  id              String   @id @default(uuid()) @db.Uuid
+  subscription_id String   @db.Uuid
+  event_type      String   @db.VarChar(100)
+  from_status     String?  @db.VarChar(50)
+  to_status       String?  @db.VarChar(50)
+  metadata        Json?
+  created_at      DateTime @default(now())
+
+  // Relations
+  subscription subscriptions @relation(fields: [subscription_id], references: [id])
+
+  @@index([subscription_id])
+  @@index([event_type])
+  @@index([created_at])
+}

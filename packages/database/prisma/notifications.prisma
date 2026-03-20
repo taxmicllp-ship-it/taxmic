@@ -1,0 +1,52 @@
+// =============================================================================
+// DOMAIN: NOTIFICATIONS — notifications, email_events
+// =============================================================================
+
+model notifications {
+  id          String                 @id @default(uuid()) @db.Uuid
+  firm_id     String                 @db.Uuid
+  user_id     String                 @db.Uuid
+  type        notification_type_enum
+  title       String                 @db.VarChar(255)
+  message     String
+  entity_type String?                @db.VarChar(50)
+  entity_id   String?                @db.Uuid
+  is_read     Boolean                @default(false)
+  read_at     DateTime?
+  created_at  DateTime               @default(now())
+
+  // Relations
+  firm firms @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([firm_id])
+  @@index([user_id])
+  @@index([is_read])
+  @@index([created_at])
+  @@index([user_id, is_read, created_at])
+}
+
+model email_events {
+  id            String                @id @default(uuid()) @db.Uuid
+  firm_id       String?               @db.Uuid
+  message_id    String                @db.VarChar(255)
+  email_to      String                @db.VarChar(255)
+  email_from    String                @db.VarChar(255)
+  subject       String?
+  template_name String?               @db.VarChar(100)
+  event_type    email_event_type_enum
+  event_data    Json?
+  ip_address    String?               @db.VarChar(45)
+  user_agent    String?
+  created_at    DateTime              @default(now())
+
+  // Relations
+  firm firms? @relation(fields: [firm_id], references: [id], onDelete: Cascade)
+
+  @@index([firm_id])
+  @@index([message_id])
+  @@index([email_to])
+  @@index([event_type])
+  @@index([created_at])
+  @@index([firm_id, created_at])
+}
